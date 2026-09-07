@@ -1,0 +1,148 @@
+<!-- python3 -m uvicorn main:app --reload -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flood Guard Dashboard</title>
+    <!-- Load Leaflet Map Styles -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Load Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        /* Modern Dark Mode Styling */
+        body { 
+            margin: 0; 
+            display: flex; 
+            font-family: 'Inter', sans-serif; 
+            height: 100vh; 
+            background-color: #0f172a; 
+        }
+        #sidebar { 
+            width: 340px; 
+            padding: 30px; 
+            background-color: #1e293b; 
+            color: #f8fafc;
+            box-shadow: 4px 0 15px rgba(0,0,0,0.5); 
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+        }
+        h2 { 
+            margin-top: 0; 
+            font-size: 26px; 
+            color: #38bdf8; /* Nice neon blue */
+            border-bottom: 2px solid #334155;
+            padding-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        p {
+            color: #94a3b8;
+            line-height: 1.6;
+            font-size: 15px;
+        }
+        #map { 
+            flex-grow: 1; 
+        }
+        #result-box {
+            background: #334155;
+            padding: 25px;
+            border-radius: 12px;
+            margin-top: 20px;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3);
+        }
+        h3 {
+            margin: 0 0 15px 0;
+            font-size: 16px;
+            color: #f1f5f9;
+        }
+        #prob-text {
+            font-size: 24px;
+            font-weight: 700;
+            color: #e2e8f0;
+        }
+        .risk-badge { 
+            padding: 14px; 
+            text-align: center; 
+            font-weight: 700; 
+            font-size: 18px;
+            border-radius: 8px; 
+            color: white;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            transition: all 0.3s ease;
+        }
+        
+        /* Dynamic colors and glowing shadows for risk levels */
+        .CRITICAL { background-color: #ef4444; box-shadow: 0 0 20px rgba(239,68,68,0.6); }
+        .HIGH { background-color: #f97316; box-shadow: 0 0 15px rgba(249,115,22,0.5); }
+        .MODERATE { background-color: #eab308; color: #1c1917; }
+        .LOW { background-color: #22c55e; }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <h2>🌊 Flood Guard</h2>
+        <p>Click anywhere on the map to evaluate real-time flood risk and calculate emergency evacuation routes.</p>
+        
+        <div id="result-box" style="display: none;">
+            <h3>Flood Probability: <span id="prob-text"></span>%</h3>
+            <div id="risk-badge" class="risk-badge"></div>
+            <p style="margin-top: 20px; margin-bottom: 0; font-size: 13px; color: #cbd5e1;">
+                📍 Recommended Safe Zone and evacuation route mapped.
+            </p>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const map = L.map('map').setView([30.3165, 78.0322], 11);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+        let marker, safeMarker, routeLine; 
+
+        map.on('click', async function(e) {
+            if (marker) map.removeLayer(marker);
+            if (safeMarker) map.removeLayer(safeMarker);
+            if (routeLine) map.removeLayer(routeLine);
+
+            marker = L.marker([e.latlng.lat, e.latlng.lng]).addTo(map).bindPopup("You are here").openPopup();
+
+            const dataToSend = { latitude: e.latlng.lat, longitude: e.latlng.lng };
+
+            const response = await fetch('/api/assess-risk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(dataToSend)
+            });
+            
+            const result = await response.json();
+
+            // Update sidebar
+            document.getElementById('result-box').style.display = 'block';
+            document.getElementById('prob-text').innerText = result.probability;
+            
+            const badge = document.getElementById('risk-badge');
+            badge.innerText = result.risk_level + " RISK";
+            badge.className = "risk-badge " + result.risk_level;
+
+            // Draw Route
+            const safeLat = result.safe_zone.lat;
+            const safeLon = result.safe_zone.lon;
+
+            safeMarker = L.marker([safeLat, safeLon]).addTo(map).bindPopup("Safe Zone (High Ground)");
+            
+            routeLine = L.polyline(
+                [[e.latlng.lat, e.latlng.lng], [safeLat, safeLon]], 
+                { color: '#22c55e', dashArray: '8, 8', weight: 4 }
+            ).addTo(map);
+        });
+    </script>
+</body>
+</html>
