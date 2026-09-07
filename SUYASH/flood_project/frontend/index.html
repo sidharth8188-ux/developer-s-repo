@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OVERFLOW — Flash Flood Early Warning</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<svg class="contours" viewBox="0 0 1200 800" preserveAspectRatio="none">
+  <path d="M-50,200 Q300,120 600,220 T1250,180" fill="none" stroke="#ffffff" stroke-width="1"/>
+  <path d="M-50,300 Q320,200 620,320 T1250,280" fill="none" stroke="#ffffff" stroke-width="1"/>
+  <path d="M-50,400 Q340,300 640,420 T1250,380" fill="none" stroke="#ffffff" stroke-width="1"/>
+  <path d="M-50,500 Q360,400 660,520 T1250,480" fill="none" stroke="#ffffff" stroke-width="1"/>
+  <path d="M-50,600 Q380,500 680,620 T1250,580" fill="none" stroke="#ffffff" stroke-width="1"/>
+</svg>
+
+<div class="shell">
+  <header>
+    <div class="brand">
+      <h1>OVERFLOW</h1>
+      <span class="tag">Flash Flood Early Warning — Hilly Regions</span>
+    </div>
+    <div class="location-select">
+      <label for="locationPicker" style="font-size:13px;color:var(--text-muted);">Location</label>
+      <select id="locationPicker">
+        <option value="dehradun" data-lat="30.3165" data-lng="78.0322">Dehradun</option>
+        <option value="mussoorie" data-lat="30.4598" data-lng="78.0664">Mussoorie</option>
+        <option value="rishikesh" data-lat="30.0869" data-lng="78.2676">Rishikesh</option>
+      </select>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- LEFT: Risk Panel -->
+    <div class="panel risk-panel">
+      <div>
+        <p class="section-label">Current risk assessment</p>
+        <div class="gauge-wrap">
+          <div class="gauge">
+            <svg viewBox="0 0 190 190" width="190" height="190">
+              <circle class="gauge-track" cx="95" cy="95" r="80"/>
+              <circle id="gaugeArc" class="gauge-value" cx="95" cy="95" r="80"
+                stroke-dasharray="0 502" />
+            </svg>
+            <div class="gauge-center">
+              <div class="gauge-pct" id="gaugePct">--%</div>
+              <div class="gauge-label">flood probability</div>
+            </div>
+          </div>
+        </div>
+        <div class="risk-badge" id="riskBadge">AWAITING DATA</div>
+      </div>
+
+      <div class="warning-msg" id="warningMsg">
+        Enter current conditions and run an assessment to see the risk for this location.
+      </div>
+
+      <div>
+        <p class="section-label">Why this risk — top contributing factors</p>
+        <div id="factorsList">
+          <p class="empty-state">Run an assessment to see explanation.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Map -->
+    <div class="panel map-panel">
+      <div id="map"></div>
+    </div>
+  </div>
+
+  <!-- Conditions input strip -->
+  <div class="panel" style="margin-top:20px;">
+    <p class="section-label">Current conditions (edit to simulate a scenario)</p>
+    <div class="conditions-strip">
+      <div class="condition-field"><label>Rainfall — last 1h (mm)</label><input type="number" id="rainfall_1h" value="35"></div>
+      <div class="condition-field"><label>Rainfall — last 3h (mm)</label><input type="number" id="rainfall_3h" value="90"></div>
+      <div class="condition-field"><label>Rainfall — last 24h (mm)</label><input type="number" id="rainfall_24h" value="180"></div>
+      <div class="condition-field"><label>Humidity (%)</label><input type="number" id="humidity" value="88"></div>
+      <div class="condition-field"><label>Elevation (m)</label><input type="number" id="elevation" value="1450"></div>
+      <div class="condition-field"><label>Slope (°)</label><input type="number" id="slope" value="30"></div>
+      <div class="condition-field"><label>Soil moisture (0–1)</label><input type="number" step="0.05" id="soil_moisture" value="0.75"></div>
+      <div class="condition-field"><label>River distance (m)</label><input type="number" id="river_distance" value="450"></div>
+    </div>
+    <button class="run-btn" id="runBtn">Run flood risk assessment</button>
+  </div>
+
+  <div class="lower-grid">
+    <div class="panel">
+      <p class="section-label">Report ground conditions</p>
+      <div class="report-form">
+        <input type="text" id="reportLocation" placeholder="Where — e.g. Rispana river bridge">
+        <select id="reportSeverity">
+          <option value="Ankle-deep water on the road">Ankle-deep water</option>
+          <option value="Knee-deep water, road partially blocked">Knee-deep water</option>
+          <option value="Severe — waist-deep or higher, road impassable">Severe — impassable</option>
+        </select>
+        <input type="text" id="reportName" placeholder="Your name (optional)">
+        <button id="reportBtn">Submit report</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <p class="section-label">Community reports</p>
+      <div class="report-list" id="reportList">
+        <p class="empty-state">No reports yet for this session.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:20px;">
+    <p class="section-label">Visual water-level check — upload a photo</p>
+    <p style="font-size:13px;color:var(--text-muted);margin-top:-4px;margin-bottom:14px;">
+      Upload a photo of a river, nala, or road. The system estimates visible water coverage
+      and factors it into the risk score alongside the sensor data.
+    </p>
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+      <input type="file" id="imageInput" accept="image/*" style="color:var(--text-muted);">
+      <button class="run-btn" id="analyzeImgBtn" style="width:auto;padding:11px 20px;">Analyze photo</button>
+    </div>
+    <div id="imageResult" style="margin-top:16px;"></div>
+  </div>
+
+  <div class="panel" style="margin-top:20px;">
+    <p class="section-label">Register your profile (for personalized alerts)</p>
+    <p style="font-size:13px;color:var(--text-muted);margin-top:-4px;margin-bottom:14px;">
+      One-time signup — not asked again. Lets the system give you specific advice
+      instead of a generic warning.
+    </p>
+    <div class="conditions-strip" style="grid-template-columns: repeat(3, 1fr);">
+      <div class="condition-field"><label>Name</label><input type="text" id="profName" placeholder="Your name"></div>
+      <div class="condition-field"><label>House type</label>
+        <select id="profHouseType" style="width:100%;background:var(--bg-panel-raised);border:1px solid var(--line);color:var(--text-primary);border-radius:6px;padding:9px 10px;">
+          <option value="kaccha">Kaccha</option>
+          <option value="pucca">Pucca</option>
+        </select>
+      </div>
+      <div class="condition-field"><label>Floor</label>
+        <select id="profFloor" style="width:100%;background:var(--bg-panel-raised);border:1px solid var(--line);color:var(--text-primary);border-radius:6px;padding:9px 10px;">
+          <option value="ground">Ground floor</option>
+          <option value="upper">Upper floor</option>
+        </select>
+      </div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:14px;color:var(--text-muted);">
+      <input type="checkbox" id="profVulnerable"> Household includes elderly, children, or disabled members
+    </label>
+    <button class="run-btn" id="registerBtn" style="margin-top:14px;">Register profile</button>
+    <div id="personalizedAlerts" style="margin-top:16px;"></div>
+  </div>
+
+  <footer>
+    <span><span class="conn-dot" id="connDot"></span><span id="connText">Checking backend connection…</span></span>
+    <span>Model: <span id="modelName">—</span></span>
+  </footer>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
