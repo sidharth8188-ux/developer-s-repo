@@ -16,6 +16,7 @@ Fir browser mein: http://127.0.0.1:8000/docs  (auto-generated API testing page)
 """
 
 import pickle
+import math
 from datetime import datetime
 from typing import List, Optional
 
@@ -57,6 +58,40 @@ COMMUNITY_REPORTS = []
 
 # In-memory storage user profiles ke liye — personalized vulnerability data
 USER_PROFILES = []
+
+# ---------------------------------------------------------------------
+# Safe places — relief shelters, high-ground areas, hospitals near
+# each demo location. In a real deployment this would come from a
+# database (government relief-center registry / PostGIS), but a fixed
+# reference list is enough to demonstrate the evacuation-guidance feature.
+# ---------------------------------------------------------------------
+SAFE_PLACES = [
+    {"name": "Survey Chowk Relief Camp", "type": "Relief shelter", "latitude": 30.3255, "longitude": 78.0436},
+    {"name": "IT Park Community Hall", "type": "Relief shelter", "latitude": 30.3540, "longitude": 78.0700},
+    {"name": "Clock Tower High Ground", "type": "High ground", "latitude": 30.3244, "longitude": 78.0413},
+    {"name": "Doon Hospital", "type": "Hospital", "latitude": 30.3202, "longitude": 78.0392},
+    {"name": "Premnagar Army Ground", "type": "High ground", "latitude": 30.3475, "longitude": 77.9613},
+    {"name": "Mussoorie Library Chowk Shelter", "type": "Relief shelter", "latitude": 30.4592, "longitude": 78.0651},
+    {"name": "Landour Community Hospital", "type": "Hospital", "latitude": 30.4580, "longitude": 78.0780},
+    {"name": "Rishikesh Triveni Ghat Relief Point", "type": "Relief shelter", "latitude": 30.1029, "longitude": 78.2932},
+    {"name": "AIIMS Rishikesh", "type": "Hospital", "latitude": 30.1135, "longitude": 78.2870},
+]
+
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    """
+    Straight-line ('as the crow flies') distance between two lat/lng points,
+    in kilometers. This is not a road-route distance — it's a fast, dependency-free
+    estimate good enough to rank nearby safe places. Real routing (road-distance,
+    turn-by-turn) would use a routing engine (OSRM / Google Directions) — noted
+    as a future upgrade.
+    """
+    R = 6371  # Earth's radius in km
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(a))
 
 
 # ---------------------------------------------------------------------------
@@ -241,6 +276,22 @@ def model_info():
         "features_used": FEATURES,
         "feature_importance": importances
     }
+
+
+@app.get("/safe-places")
+def get_safe_places(latitude: float, longitude: float, limit: int = 3):
+    """
+    Unique feature: given the user's current location, returns the nearest
+    safe places (relief shelters, high ground, hospitals) sorted by
+    straight-line distance — for evacuation guidance during HIGH/CRITICAL risk.
+    """
+    ranked = []
+    for place in SAFE_PLACES:
+        dist = haversine_km(latitude, longitude, place["latitude"], place["longitude"])
+        ranked.append({**place, "distance_km": round(dist, 2)})
+
+    ranked.sort(key=lambda p: p["distance_km"])
+    return {"safe_places": ranked[:limit]}
 
 
 @app.post("/register")

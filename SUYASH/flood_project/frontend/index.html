@@ -32,8 +32,27 @@
         <option value="mussoorie" data-lat="30.4598" data-lng="78.0664">Mussoorie</option>
         <option value="rishikesh" data-lat="30.0869" data-lng="78.2676">Rishikesh</option>
       </select>
+      <button id="useLocationBtn" title="Use my current location" style="background:var(--bg-panel-raised);border:1px solid var(--line);color:var(--text-primary);border-radius:6px;padding:9px 12px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:6px;">
+        📍 Use my location
+      </button>
     </div>
   </header>
+  <div id="locationStatus" style="text-align:right;font-size:12px;color:var(--text-muted);margin-top:-16px;margin-bottom:6px;min-height:16px;"></div>
+  <div id="locationNameEditWrap" style="display:none;text-align:right;margin-top:-4px;margin-bottom:16px;">
+    <input type="text" id="locationNameEdit" placeholder="Edit location name"
+      style="background:var(--bg-panel-raised);border:1px solid var(--line);color:var(--text-primary);border-radius:6px;padding:6px 10px;font-size:12px;width:220px;text-align:right;">
+    <span style="font-size:11px;color:var(--text-muted);"> ← correct the name if needed</span>
+  </div>
+
+  <div class="panel" style="margin-bottom:20px;padding:16px 22px;">
+    <p class="section-label" style="margin-bottom:10px;">Search any location manually</p>
+    <div style="display:flex;gap:10px;position:relative;">
+      <input type="text" id="manualLocationSearch" placeholder="Type a place name — e.g. Prem Nagar, Rishikesh, any village…"
+        style="flex:1;background:var(--bg-panel-raised);border:1px solid var(--line);color:var(--text-primary);border-radius:6px;padding:10px 12px;font-size:14px;">
+      <button id="manualSearchBtn" class="run-btn" style="width:auto;padding:10px 20px;margin-top:0;">Search</button>
+      <div id="manualSearchResults" style="position:absolute;top:100%;left:0;right:100px;margin-top:4px;background:var(--bg-panel-raised);border:1px solid var(--line);border-radius:6px;z-index:1000;display:none;max-height:220px;overflow-y:auto;"></div>
+    </div>
+  </div>
 
   <div class="grid">
     <!-- LEFT: Risk Panel -->
@@ -58,6 +77,11 @@
 
       <div class="warning-msg" id="warningMsg">
         Enter current conditions and run an assessment to see the risk for this location.
+      </div>
+
+      <div id="safePlacesSection" style="display:none;">
+        <p class="section-label">Nearest safe places</p>
+        <div id="safePlacesList"></div>
       </div>
 
       <div>

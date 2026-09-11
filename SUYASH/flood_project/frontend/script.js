@@ -19,14 +19,180 @@ const reportMarkers = [];
 // Location picker
 // ---------------------------------------------------------------------
 const locationPicker = document.getElementById('locationPicker');
+let customLocation = null; // set when user uses "current location" instead of the dropdown
+
 function currentLatLng() {
+  if (customLocation) return customLocation;
   const opt = locationPicker.selectedOptions[0];
   return { lat: parseFloat(opt.dataset.lat), lng: parseFloat(opt.dataset.lng), name: opt.textContent };
 }
 locationPicker.addEventListener('change', () => {
+  customLocation = null; // dropdown chosen again — drop the custom pin
+  document.getElementById('locationNameEditWrap').style.display = 'none';
+  locationStatus.textContent = '';
   const { lat, lng } = currentLatLng();
   map.setView([lat, lng], 12);
   riskMarker.setLatLng([lat, lng]);
+});
+
+// ---------------------------------------------------------------------
+// "Use my location" — browser Geolocation API
+// ---------------------------------------------------------------------
+const useLocationBtn = document.getElementById('useLocationBtn');
+const locationStatus = document.getElementById('locationStatus');
+
+function detectMyLocation(isAutomatic = false) {
+  if (!navigator.geolocation) {
+    if (!isAutomatic) locationStatus.textContent = 'Geolocation is not supported by this browser.';
+    return;
+  }
+
+  locationStatus.textContent = isAutomatic ? 'Checking your location…' : 'Detecting your location…';
+  useLocationBtn.disabled = true;
+
+  navigator.geolocation.getCurrentPosition(
+    async (position) => {
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+
+      // Reverse-geocode to get a human-readable name (OpenStreetMap Nominatim — free, no key needed)
+      // zoom=18 asks Nominatim for building/POI-level detail instead of just the town
+      let placeName = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`);
+        const data = await res.json();
+        const addr = data.address || {};
+
+        // Most specific first: named building/POI, then locality, then fall back to town/city.
+        // data.display_name's first segment is usually the most specific labeled feature
+        // (e.g. a university/building name) — prefer that over generic town/city fields.
+        const specificFromDisplayName = data.display_name?.split(',')[0]?.trim();
+        const isGenericMatch = specificFromDisplayName &&
+          (specificFromDisplayName === addr.town || specificFromDisplayName === addr.city || specificFromDisplayName === addr.county);
+
+        placeName =
+          (specificFromDisplayName && !isGenericMatch && specificFromDisplayName) ||
+          addr.college || addr.university ||
+          addr.building || addr.amenity ||
+          addr.suburb || addr.neighbourhood || addr.village || addr.hamlet ||
+          addr.road ||
+          addr.town || addr.city || addr.county ||
+          placeName;
+      } catch (e) {
+        console.warn('Reverse geocoding failed, using coordinates instead.', e);
+      }
+
+      customLocation = { lat, lng, name: placeName };
+
+      map.setView([lat, lng], 13);
+      riskMarker.setLatLng([lat, lng]);
+      riskMarker.setPopupContent(`Your location: ${placeName}`);
+      riskMarker.openPopup();
+
+      locationStatus.textContent = `Using your location: ${placeName}`;
+      useLocationBtn.disabled = false;
+
+      // Show an editable field pre-filled with the detected name — OpenStreetMap's
+      // data can be imprecise for smaller localities, so we let the user correct it
+      const editWrap = document.getElementById('locationNameEditWrap');
+      const editInput = document.getElementById('locationNameEdit');
+      editWrap.style.display = 'block';
+      editInput.value = placeName;
+      editInput.oninput = () => {
+        if (customLocation) {
+          customLocation.name = editInput.value.trim() || placeName;
+          riskMarker.setPopupContent(`Your location: ${customLocation.name}`);
+        }
+      };
+    },
+    (error) => {
+      const messages = {
+        1: isAutomatic
+          ? 'Location permission not granted — use the dropdown or search box below.'
+          : 'Location permission denied. Please allow location access, or pick from the dropdown.',
+        2: 'Location unavailable right now. Please pick from the dropdown or search manually.',
+        3: 'Location request timed out. Please try again or pick from the dropdown.',
+      };
+      locationStatus.textContent = messages[error.code] || 'Could not get your location.';
+      useLocationBtn.disabled = false;
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
+useLocationBtn.addEventListener('click', () => detectMyLocation(false));
+
+// Ask for location automatically as soon as the page loads — this way the
+// dashboard opens already centered on the user's area, before they do anything
+window.addEventListener('load', () => detectMyLocation(true));
+
+// ---------------------------------------------------------------------
+// Manual location search — type any place name, pick from results
+// ---------------------------------------------------------------------
+const manualSearchInput = document.getElementById('manualLocationSearch');
+const manualSearchBtn = document.getElementById('manualSearchBtn');
+const manualSearchResults = document.getElementById('manualSearchResults');
+
+async function searchLocation() {
+  const query = manualSearchInput.value.trim();
+  if (!query) return;
+
+  manualSearchResults.style.display = 'block';
+  manualSearchResults.innerHTML = '<div style="padding:10px 12px;color:var(--text-muted);font-size:13px;">Searching…</div>';
+
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=6&addressdetails=1`);
+    const results = await res.json();
+
+    if (!results.length) {
+      manualSearchResults.innerHTML = '<div style="padding:10px 12px;color:var(--text-muted);font-size:13px;">No matches found — try a different spelling.</div>';
+      return;
+    }
+
+    manualSearchResults.innerHTML = results.map((r, i) => `
+      <div class="manual-result-item" data-idx="${i}"
+        style="padding:10px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line);">
+        ${r.display_name}
+      </div>
+    `).join('');
+
+    manualSearchResults.querySelectorAll('.manual-result-item').forEach((el) => {
+      el.addEventListener('mouseenter', () => { el.style.background = 'var(--bg-panel)'; });
+      el.addEventListener('mouseleave', () => { el.style.background = 'transparent'; });
+      el.addEventListener('click', () => {
+        const r = results[parseInt(el.dataset.idx, 10)];
+        const lat = parseFloat(r.lat);
+        const lng = parseFloat(r.lon);
+        const name = r.display_name.split(',')[0].trim();
+
+        customLocation = { lat, lng, name };
+        map.setView([lat, lng], 13);
+        riskMarker.setLatLng([lat, lng]);
+        riskMarker.setPopupContent(`${name}`);
+        riskMarker.openPopup();
+
+        locationStatus.textContent = `Using: ${name}`;
+        document.getElementById('locationNameEditWrap').style.display = 'block';
+        document.getElementById('locationNameEdit').value = name;
+
+        manualSearchResults.style.display = 'none';
+        manualSearchInput.value = name;
+      });
+    });
+  } catch (e) {
+    manualSearchResults.innerHTML = '<div style="padding:10px 12px;color:var(--risk-critical);font-size:13px;">Search failed — check your internet connection.</div>';
+    console.error(e);
+  }
+}
+
+manualSearchBtn.addEventListener('click', searchLocation);
+manualSearchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') searchLocation();
+});
+document.addEventListener('click', (e) => {
+  if (!manualSearchResults.contains(e.target) && e.target !== manualSearchInput) {
+    manualSearchResults.style.display = 'none';
+  }
 });
 
 // ---------------------------------------------------------------------
@@ -86,6 +252,7 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     document.getElementById('warningMsg').textContent = data.warning_message;
     lastRiskLevel = data.risk_level;
     loadPersonalizedAlerts(data.risk_level);
+    updateSafePlaces(data.risk_level, lat, lng);
 
     riskMarker.setStyle({ color, fillColor: color });
     riskMarker.setPopupContent(`${name}: ${data.risk_level} (${pct.toFixed(0)}%)`);
@@ -111,6 +278,72 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
+
+// ---------------------------------------------------------------------
+// Safe places — evacuation guidance for HIGH/CRITICAL risk
+// ---------------------------------------------------------------------
+let safePlaceMarkers = [];
+let safeRouteLine = null;
+
+async function updateSafePlaces(riskLevel, lat, lng) {
+  const section = document.getElementById('safePlacesSection');
+  const list = document.getElementById('safePlacesList');
+
+  // Clear previous markers/line regardless of outcome
+  safePlaceMarkers.forEach(m => map.removeLayer(m));
+  safePlaceMarkers = [];
+  if (safeRouteLine) { map.removeLayer(safeRouteLine); safeRouteLine = null; }
+
+  // Only show evacuation guidance when risk is actually elevated
+  if (riskLevel !== 'HIGH' && riskLevel !== 'CRITICAL') {
+    section.style.display = 'none';
+    return;
+  }
+
+  section.style.display = 'block';
+  list.innerHTML = '<p class="empty-state">Finding nearest safe places…</p>';
+
+  try {
+    const res = await fetch(`${API_BASE}/safe-places?latitude=${lat}&longitude=${lng}&limit=3`);
+    const data = await res.json();
+
+    if (!data.safe_places.length) {
+      list.innerHTML = '<p class="empty-state">No safe-place data available for this area yet.</p>';
+      return;
+    }
+
+    const typeIcons = { 'Relief shelter': '🏠', 'High ground': '⛰️', 'Hospital': '🏥' };
+    list.innerHTML = data.safe_places.map(p => `
+      <div class="safe-place-item">
+        <div>
+          <div class="spname">${typeIcons[p.type] || '📍'} ${p.name}</div>
+          <div class="sptype">${p.type}</div>
+        </div>
+        <div class="spdist">${p.distance_km} km</div>
+      </div>
+    `).join('');
+
+    // Plot markers for each safe place
+    data.safe_places.forEach(p => {
+      const marker = L.circleMarker([p.latitude, p.longitude], {
+        radius: 8, color: '#4f9d6e', fillColor: '#4f9d6e', fillOpacity: 0.7, weight: 2
+      }).addTo(map).bindPopup(`<b>${p.name}</b><br>${p.type} — ${p.distance_km} km away`);
+      safePlaceMarkers.push(marker);
+    });
+
+    // Draw a straight-line path to the nearest one (as-the-crow-flies —
+    // real road-routing would need a routing engine, noted as a future upgrade)
+    const nearest = data.safe_places[0];
+    safeRouteLine = L.polyline(
+      [[lat, lng], [nearest.latitude, nearest.longitude]],
+      { color: '#4f9d6e', weight: 3, dashArray: '6, 8' }
+    ).addTo(map);
+
+  } catch (err) {
+    list.innerHTML = '<p class="empty-state">Could not load safe places. Check backend connection.</p>';
+    console.error(err);
+  }
+}
 
 // ---------------------------------------------------------------------
 // Community reports
